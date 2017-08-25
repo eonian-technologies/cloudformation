@@ -1,0 +1,488 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Single VPN instance. Adds routes and NACL rules to the specified VPC.
+
+# Parameters
+Parameters:
+  VPCStackName:
+    Type: String
+    Description: The name of the VPC stack where the VPN will be deployed.
+  EnableIPv6Support:
+    Type: String
+    Description: Yes, if you want IPv6 SSH rules added to the VPC's NACLs.
+    AllowedValues:
+    - 'Yes'
+    - 'No'
+    Default: 'Yes'
+  Version:
+    Type: String
+    Description: The OpenVPN version.
+    AllowedValues:
+    - '2.1.9'
+    Default: '2.1.9'
+  NumberOfDevices:
+    Type: String
+    Description: Does not include instance charges. You must accept the license agreement in the AWS Marketplace.
+    AllowedValues:
+    -   2 | Free
+    -   5 | $0.07/hr or from $490.00/yr
+    -  10 | $0.10/hr or from $700.00/yr
+    -  25 | $0.20/hr or from $1,400.00/yr
+    -  50 | $0.30/hr or from $2,100.00/yr
+    - 100 | $0.40/hr or from $2,800.00/yr
+    - 250 | $0.80/hr or from $5,600.00/yr
+    - 500 | $1.50/hr or from $10,500.00/yr
+    Default: 2 | Free
+  InstanceType:
+    Type: String
+    Description: The AWS instance type that will be used.
+    AllowedValues:
+    - t2.small
+    - t2.medium
+    - t2.large
+    - m4.large
+    - t2.xlarge
+    - t2.2xlarge
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    Default: t2.medium
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The key that will be used to SSH into the host.
+  HostName:
+    Type: String
+    Description: The DNS host name of the VPN server.
+    Default: vpn.nonprod.us-east-1
+  DomainName:
+    Type: String
+    Description: The domain name of the Route53 public hosted zone that will contain the DNS record.
+    Default: mycompany.com
+  PublicSSHCIDR:
+    Type: String
+    Description: The IPv4 CIDR allowed to SSH into the VPC's public zones.
+    Default: 0.0.0.0/0
+  PublicSSHIPv6CIDR:
+    Type: String
+    Description:  The IPv6 CIDR allowed to SSH into the VPC's public zones.
+    Default: ::/0
+
+# Metadata
+Metadata:
+  AWS::CloudFormation::Interface:
+
+    # Parameter Groups
+    ParameterGroups:
+    - Label:
+        default: VPC
+      Parameters:
+      - VPCStackName
+      - EnableIPv6Support
+    - Label:
+        default: Instance
+      Parameters:
+      - InstanceType
+      - KeyName
+    - Label:
+        default: OpenVPN
+      Parameters:
+      - Version
+      - NumberOfDevices
+    - Label:
+        default: DNS
+      Parameters:
+      - HostName
+      - DomainName
+    - Label:
+        default: Public SSH Ingress
+      Parameters:
+      - PublicSSHCIDR
+      - PublicSSHIPv6CIDR
+
+    # Parameter Labels
+    ParameterLabels:
+      VPCStackName:
+        default: VPC Stack
+      EnableIPv6Support:
+        default: Enable IPv6
+      InstanceType:
+        default: Instance Type
+      HostName:
+        default: Host Name
+      DomainName:
+        default: Domain Name
+      PublicSSHCIDR:
+        default: IPv4 CIDR
+      PublicSSHIPv6CIDR:
+        default: IPv6 CIDR
+      NumberOfDevices:
+        default: Number Of Users
+
+# Conditions
+Conditions:
+  IPv6Enabled:
+    Fn::Equals:
+    - 'Yes'
+    - Ref: EnableIPv6Support
+  HasIPv6SSHCIDR:
+    Fn::And:
+    - Fn::Not:
+      - Fn::Equals:
+        - ''
+        - Ref: PublicSSHIPv6CIDR
+    - Condition: IPv6Enabled
+
+# Resources
+Resources:
+
+  # Security Group
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn: OpenVPNAMI
+    Properties:
+      GroupName: VPN Security Group
+      GroupDescription: VPN Security Goup
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:vpc
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '943'
+        ToPort: '943'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: '1194'
+        ToPort: '1194'
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: resource-type
+        Value:
+          Fn::ImportValue:
+            !Sub "${VPCStackName}:vpc-type"
+
+  # Instance
+  Instance:
+    DependsOn: SecurityGroup
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Sub "${OpenVPNAMI.value}"
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+      - !Ref SecurityGroup
+      SubnetId:
+        Fn::ImportValue:
+          Fn::Sub:
+             ${VPCStackName}:public-subnet-1
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - '-'
+          - - "vpn"
+            - Fn::ImportValue:
+                !Sub "${VPCStackName}:vpc-type"
+      - Key: resource-type
+        Value:
+          Fn::ImportValue:
+            !Sub "${VPCStackName}:vpc-type"
+
+  # EIP
+  EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: SecurityGroup
+    Properties:
+      Domain: vpc
+
+  # Associate EIP
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn: EIP
+    Properties:
+      EIP:
+        Ref: EIP
+      InstanceId:
+        Ref: Instance
+
+  # DNS Record
+  Route53RecordSet:
+    Type: "AWS::Route53::RecordSet"
+    DependsOn: Instance
+    Properties:
+      HostedZoneName: !Sub "${DomainName}."
+      Name: !Sub "${HostName}.${DomainName}."
+      Type: A
+      TTL: '300'
+      ResourceRecords:
+      - Ref: EIP
+
+  # NACL Rules, public subnets
+  # Inbound IPv4 SSH
+  PublicAclIngress120:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn: Instance
+    Properties:
+      CidrBlock:
+        Ref: PublicSSHCIDR
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '120'
+      PortRange:
+        From: '22'
+        To: '22'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:public-nacl
+  # Inbound IPv6 SSH
+  PublicAclIngress121:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: HasIPv6SSHCIDR
+    DependsOn: Instance
+    Properties:
+      Ipv6CidrBlock:
+        Ref: PublicSSHIPv6CIDR
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '121'
+      PortRange:
+        From: '22'
+        To: '22'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:public-nacl
+  # Inbound IPv4 VPN UI
+  PublicAclIngress500:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn: Instance
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '500'
+      PortRange:
+        From: '943'
+        To: '943'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:public-nacl
+  # Inbound IPv4 VPN UDP
+  PublicAclIngress501:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn: Instance
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: '17'
+      RuleAction: allow
+      RuleNumber: '501'
+      PortRange:
+        From: '1194'
+        To: '1194'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:public-nacl
+  # Outbound IPv4 SSH
+  PublicAclEgress120:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn: Instance
+    Properties:
+      Egress: true
+      CidrBlock:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:vpc-cidr
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '120'
+      PortRange:
+        From: '22'
+        To: '22'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:public-nacl
+  # Outbound IPv6 SSH
+  PublicAclEgress121:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: IPv6Enabled
+    DependsOn: Instance
+    Properties:
+      Egress: true
+      Ipv6CidrBlock:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:vpc-ipv6-cidr
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '121'
+      PortRange:
+        From: '22'
+        To: '22'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:public-nacl
+
+  # NACL Rules, private subnets
+  # Inbound IPv4 SSH
+  PrivateAclIngress120:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn: Instance
+    Properties:
+      CidrBlock:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:vpc-cidr
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '120'
+      PortRange:
+        From: '22'
+        To: '22'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:private-nacl
+  # Inbound IPv6 SSH
+  PrivateAclIngress121:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: IPv6Enabled
+    DependsOn: Instance
+    Properties:
+      Ipv6CidrBlock:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:vpc-ipv6-cidr
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '121'
+      PortRange:
+        From: '22'
+        To: '22'
+      NetworkAclId:
+        Fn::ImportValue:
+          Fn::Sub:
+            ${VPCStackName}:private-nacl
+
+  # Lambda Function to Look up the OpenVPN Marketplace AMI based on the region,
+  # the OpenVPN vertsion, and the number of connected devices.
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaRole
+    Properties:
+      Runtime: python2.7
+      Handler: "index.handler"
+      Timeout: 5
+      FunctionName: !Sub get-openvpc-marketplace-ami-${AWS::StackName}
+      Description: Looks up the OpenVPN Marketplace AMI based on the region and the desired number of connected devices.
+      Role: !GetAtt LambdaRole.Arn
+      Code:
+        ZipFile: !Sub |
+          import cfnresponse
+
+          def handler(event, context):
+            # handle delete event
+            if event['RequestType'] is 'Delete':
+              cfnresponse.send(event, context, cfnresponse.SUCCESS)
+
+            # Set the 'event' properties to local variables.
+            Region = event['ResourceProperties']['Region']
+            Version = event['ResourceProperties']['Version']
+            NumberOfDevices = event['ResourceProperties']['NumberOfDevices']
+            NumberOfDevices = NumberOfDevices.split(" | ")[0]
+
+            # Create the AMI map
+            amiMap = {}
+            amiMap["us-east-1"] = {}
+            amiMap["us-east-1"]["2.1.9"] = {}
+            amiMap["us-east-1"]["2.1.9"]["2"] = "ami-f6eed4e0"
+            amiMap["us-east-1"]["2.1.9"]["5"] = "ami-6beed47d"
+            amiMap["us-east-1"]["2.1.9"]["10"] = "ami-d4e9d3c2"
+            amiMap["us-east-1"]["2.1.9"]["25"] = "ami-f1eed4e7"
+            amiMap["us-east-1"]["2.1.9"]["50"] = "ami-bcebd1aa"
+            amiMap["us-east-1"]["2.1.9"]["100"] = "ami-29eed43f"
+            amiMap["us-east-1"]["2.1.9"]["250"] = "ami-b1ebd1a7"
+            amiMap["us-east-1"]["2.1.9"]["500"] = "ami-2deed43b"
+
+            # Create the response data map
+            responseData = {}
+            responseData['value'] = amiMap[Region][Version][NumberOfDevices]
+
+            # Send the response
+            cfnresponse.send(
+                    event,
+                    context,
+                    cfnresponse.SUCCESS,
+                    responseData,
+                    "CustomResourcePhysicalID")
+      Runtime: python2.7
+      Timeout: 5
+      Tags:
+      - Key: resource-type
+        Value:
+          Fn::ImportValue:
+            !Sub "${VPCStackName}:vpc-type"
+
+  # IAM Role for the Lambda Function
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: AllowLogsWrite
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+
+  # Execute the Lambda Function
+  OpenVPNAMI:
+    DependsOn: LambdaRole
+    Type: Custom::ExecuteLambda
+    DependsOn: LambdaFunction
+    Properties:
+      ServiceToken: !GetAtt LambdaFunction.Arn
+      Region: !Ref 'AWS::Region'
+      Version: !Ref Version
+      NumberOfDevices: !Ref NumberOfDevices
+
+# Outputs
+Outputs:
+  AMI:
+    Description: The OpenVPN AMI used.
+    Value: !Sub "${OpenVPNAMI.value}"
+  AdminURL:
+    Description: The URL to the OpenVPN Admin UI.
+    Value: !Sub "https://${HostName}.${DomainName}:943/admin"
+  DomainName:
+    Description: The domain name of the OpenVPN instsance.
+    Value: !Sub "${HostName}.${DomainName}"
+  IPAddress:
+    Description: The IP address of the OpenVPN instance.
+    Value: !Ref EIP

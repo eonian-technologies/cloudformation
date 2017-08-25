@@ -1,0 +1,1092 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Three-zone VPC.
+Parameters:
+  VPCType:
+    Type: String
+    Description: The type of VPC.
+    AllowedValues:
+    - nonprod
+    - prod
+    - test
+    Default: nonprod
+  VPCCidr:
+    Type: String
+    Description: The IPv4 CIDR for the VPC.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be an IP CIDR range in the form of x.x.x.x/x.
+    Default: 10.0.0.0/16
+  EnableIPv6Support:
+    Type: String
+    Description: Adds IPv6 routes and rules to the VPC's route tables and NACLs.
+    AllowedValues:
+    - 'Yes'
+    - 'No'
+    Default: 'Yes'
+  AutoAssignPublicAddress:
+    Type: String
+    Description: Assigns public IP addresses to instances in the public subnets.
+    AllowedValues:
+    - 'Yes'
+    - 'No'
+    Default: 'Yes'
+  EnableDnsSupport:
+    Type: String
+    Description: Enables the Amazon provided DNS server.
+    AllowedValues:
+    - 'Yes'
+    - 'No'
+    Default: 'Yes'
+  EnableDnsHostnames:
+    Type: String
+    Description: Assign Amazon provided DNS names to instances.
+    AllowedValues:
+    - 'Yes'
+    - 'No'
+    Default: 'Yes'
+    Type: String
+  DomainName:
+    Type: String
+    Description: A custom domain for private DNS names. Must also specify Name Servers.
+  NameServers:
+    Type: String
+    Description: Up to four IP addresses separated by commas.
+  NTPServers:
+    Type: String
+    Description: Up to four IP addresses separated by commas. Leave empty to use AWS NTP servers.
+  PublicSubnet1Cidr:
+    Type: String
+    Description: IPv4 CIDR for the first public subnet.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid subnet CIDR.
+    Default: 10.0.192.0/20
+  PublicSubnet2Cidr:
+    Type: String
+    Description: IPv4 CIDR for the second public subnet.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid subnet CIDR.
+    Default: 10.0.208.0/20
+  PublicSubnet3Cidr:
+    Type: String
+    Description: IPv4 CIDR for the third public subnet.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid subnet CIDR.
+    Default: 10.0.224.0/20
+  PrivateSubnet1Cidr:
+    Type: String
+    Description: IPv4 CIDR for the first private subnet.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid subnet CIDR.
+    Default: 10.0.0.0/18
+  PrivateSubnet2Cidr:
+    Type: String
+    Description: IPv4 CIDR for the second private subnet.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid subnet CIDR.
+    Default: 10.0.64.0/18
+  PrivateSubnet3Cidr:
+    Type: String
+    Description: IPv4 CIDR for the third private subnet.
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid subnet CIDR.
+    Default: 10.0.128.0/18
+
+# Metadata
+Metadata:
+  AWS::CloudFormation::Interface:
+
+    # Parameter Groups
+    ParameterGroups:
+    - Label:
+        default: VPC Information
+      Parameters:
+      - VPCType
+      - VPCCidr
+      - EnableIPv6Support
+      - AutoAssignPublicAddress
+    - Label:
+        default: Amazon Provided DNS
+      Parameters:
+      - EnableDnsSupport
+      - EnableDnsHostnames
+    - Label:
+        default: Custom DNS (will disable Amazon Provided DNS)
+      Parameters:
+      - DomainName
+      - NameServers
+    - Label:
+        default: Other DHCP Options
+      Parameters:
+      - NTPServers
+    - Label:
+        default: Public Subnet CIDRs
+      Parameters:
+      - PublicSubnet1Cidr
+      - PublicSubnet2Cidr
+      - PublicSubnet3Cidr
+    - Label:
+        default: Private Subnet CIDRs
+      Parameters:
+      - PrivateSubnet1Cidr
+      - PrivateSubnet2Cidr
+      - PrivateSubnet3Cidr
+
+    # Parameter Lables
+    ParameterLabels:
+      VPCType:
+        default: VPC Type
+      VPCCidr:
+        default: VPC CIDR
+      EnableDnsSupport:
+        default: Enable DNS Support
+      EnableDnsHostnames:
+        default: Enable DNS Host Names
+      EnableIPv6Support:
+        default: Ebable IPv6
+      AutoAssignPublicAddress:
+        default: Auto-assign public IP
+      DomainName:
+        default: Domain Name
+      NameServers:
+        default: Name Servers
+      NTPServers:
+        default: NTP Servers
+      PublicSubnet1Cidr:
+        default: Pubic Subnet 1
+      PublicSubnet2Cidr:
+        default: Pubic Subnet 2
+      PublicSubnet3Cidr:
+        default: Pubic Subnet 3
+      PrivateSubnet1Cidr:
+        default: Private Subnet 1
+      PrivateSubnet2Cidr:
+        default: Private Subnet 2
+      PrivateSubnet3Cidr:
+        default: Private Subnet 3
+
+# Conditions
+Conditions:
+  HasDomainName: !Not [!Equals ['', !Ref DomainName]]
+  HasNameServers: !Not [!Equals ['', !Ref NameServers]]
+  HasNTPServers: !Not [!Equals ['', !Ref NTPServers]]
+  IsUsEast1: !Equals [us-east-1, !Ref 'AWS::Region']
+  AutoAssignPublicIP: !Equals ['Yes', !Ref AutoAssignPublicAddress]
+  EnableIPv6: !Equals ['Yes', !Ref EnableIPv6Support]
+  EnableDNS: !And [
+    !Not [!Condition HasDomainName],
+    !Not [!Condition HasNameServers],
+    !Equals ['Yes', !Ref EnableDnsSupport]]
+  EnableHostnames: !And [
+    !Not [!Condition HasDomainName],
+    !Not [!Condition HasNameServers],
+    !Equals ['Yes', !Ref EnableDnsHostnames]]
+
+# Resources
+Resources:
+
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidr
+      InstanceTenancy: default
+      EnableDnsSupport: !If [EnableDNS, true, false]
+      EnableDnsHostnames: !If [EnableHostnames, true, false]
+      Tags:
+      - Key: Name
+        Value: !Ref VPCType
+      - Key: resource-type
+        Value: !Ref VPCType
+
+
+  # VPC IPv6 CIDR Block (conditional on EnableIPv6)
+  VPCIPv6CIDRBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Condition: EnableIPv6
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId: !Ref VPC
+
+  # Public Subnet 1
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, 'Fn::GetAZs': !Ref 'AWS::Region']
+      CidrBlock: !Ref PublicSubnet1Cidr
+      MapPublicIpOnLaunch: !If [AutoAssignPublicIP, true, false]
+      Tags:
+      - Key: Name
+        Value: !Sub ${VPCType}-public-1
+      - Key: network-type
+        Value: public
+      - Key: resource-type
+        Value: !Ref VPCType
+      VpcId: !Ref VPC
+
+  # Public Subnet 1 IPv6 CIDR Block
+  PublicSubnet1IPv6CIDRBlock:
+    Type: AWS::EC2::SubnetCidrBlock
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRPrefix
+    Properties:
+      Ipv6CidrBlock: !Sub ${VPCIPv6CIDRPrefix.value}00::/64
+      SubnetId: !Ref PublicSubnet1
+
+  # Public Subnet 2
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, 'Fn::GetAZs': !Ref 'AWS::Region']
+      CidrBlock: !Ref PublicSubnet2Cidr
+      MapPublicIpOnLaunch: !If [AutoAssignPublicIP, true, false]
+      Tags:
+      - Key: Name
+        Value: !Sub ${VPCType}-public-2
+      - Key: network-type
+        Value: public
+      - Key: resource-type
+        Value: !Ref VPCType
+      VpcId: !Ref VPC
+
+  # Public Subnet 2 IPv6 CIDR Block
+  PublicSubnet2IPv6CIDRBlock:
+    Type: AWS::EC2::SubnetCidrBlock
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRPrefix
+    Properties:
+      Ipv6CidrBlock: !Sub ${VPCIPv6CIDRPrefix.value}01::/64
+      SubnetId: !Ref PublicSubnet2
+
+  # Public subnet 3
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [2, 'Fn::GetAZs': !Ref 'AWS::Region']
+      CidrBlock: !Ref PublicSubnet3Cidr
+      MapPublicIpOnLaunch: !If [AutoAssignPublicIP, true, false]
+      Tags:
+      - Key: Name
+        Value: !Sub ${VPCType}-public-3
+      - Key: network-type
+        Value: public
+      - Key: resource-type
+        Value: !Ref VPCType
+      VpcId: !Ref VPC
+
+  # Public Subnet 3 IPv6 CIDR Block
+  PublicSubnet3IPv6CIDRBlock:
+    Type: AWS::EC2::SubnetCidrBlock
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRPrefix
+    Properties:
+      Ipv6CidrBlock: !Sub ${VPCIPv6CIDRPrefix.value}02::/64
+      SubnetId: !Ref PublicSubnet3
+
+  # Private Subnet 1
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, 'Fn::GetAZs': !Ref 'AWS::Region']
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Sub ${VPCType}-private-1
+      - Key: network-type
+        Value: private
+      - Key: resource-type
+        Value: !Ref VPCType
+      VpcId: !Ref VPC
+
+  # Private Subnet 1 IPv6 CIDR Block
+  PrivateSubnet1IPv6CIDRBlock:
+    Type: AWS::EC2::SubnetCidrBlock
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRPrefix
+    Properties:
+      Ipv6CidrBlock: !Sub ${VPCIPv6CIDRPrefix.value}03::/64
+      SubnetId: !Ref PrivateSubnet1
+
+  # Private Subnet 2
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, 'Fn::GetAZs': !Ref 'AWS::Region']
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Sub ${VPCType}-private-2
+      - Key: network-type
+        Value: private
+      - Key: resource-type
+        Value: !Ref VPCType
+      VpcId: !Ref VPC
+
+  # Private Subnet 2 IPv6 CIDR Block
+  PrivateSubnet2IPv6CIDRBlock:
+    Type: AWS::EC2::SubnetCidrBlock
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRPrefix
+    Properties:
+      Ipv6CidrBlock: !Sub ${VPCIPv6CIDRPrefix.value}04::/64
+      SubnetId: !Ref PrivateSubnet2
+
+  # Private Subnet 3
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [2, 'Fn::GetAZs': !Ref 'AWS::Region']
+      CidrBlock: !Ref PrivateSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Sub ${VPCType}-private-3
+      - Key: network-type
+        Value: private
+      - Key: resource-type
+        Value: !Ref VPCType
+      VpcId: !Ref VPC
+
+  # Private Subnet 3 IPv6 CIDR Block
+  PrivateSubnet3IPv6CIDRBlock:
+    Type: AWS::EC2::SubnetCidrBlock
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRPrefix
+    Properties:
+      Ipv6CidrBlock: !Sub ${VPCIPv6CIDRPrefix.value}05::/64
+      SubnetId: !Ref PrivateSubnet3
+
+  # DHCP Options Set
+  DHCPOptionsSet:
+    Type: AWS::EC2::DHCPOptions
+    Properties:
+      DomainName: !If [HasDomainName, !Ref DomainName, !If [IsUsEast1, ec2.internal, compute.internal]]
+      DomainNameServers: !If [HasNameServers, !Split [',', !Ref NameServers], [AmazonProvidedDNS]]
+      NtpServers: !If [HasNTPServers, !Split [',', !Ref NTPServers], !Ref 'AWS::NoValue']
+      Tags:
+      - Key: Name
+        Value: !Ref VPCType
+      - Key: resource-type
+        Value: !Ref VPCType
+
+  # Associate DHCP Options Set
+  DHCPOptionsAssociate:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties:
+      VpcId: !Ref VPC
+      DhcpOptionsId: !Ref DHCPOptionsSet
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Ref VPCType
+      - Key: resource-type
+        Value: !Ref VPCType
+
+  # Attach Internet Gateway
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # NAT Gateway for public subnet 1
+  PublicSubnet1NAT:
+    DependsOn: AttachInternetGateway
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPPublicSubnet1NAT.AllocationId
+      SubnetId: !Ref PublicSubnet1
+  EIPPublicSubnet1NAT:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # NAT Gateway for public subnet 2
+  PublicSubnet2NAT:
+    DependsOn: AttachInternetGateway
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPPublicSubnet2NAT.AllocationId
+      SubnetId: !Ref PublicSubnet2
+  EIPPublicSubnet2NAT:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # NAT Gateway for public subnet 3
+  PublicSubnet3NAT:
+    DependsOn: AttachInternetGateway
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPPublicSubnet3NAT.AllocationId
+      SubnetId: !Ref PublicSubnet3
+  EIPPublicSubnet3NAT:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # Egress-only Internet Gateway (conditional on EnableIPv6)
+  EgressOnlyInternetGateway:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Condition: EnableIPv6
+    Properties:
+      VpcId: !Ref VPC
+
+  # Network ACLs
+  PublicNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: public-nacl
+      - Key: network-type
+        Value: public
+      - Key: resource-type
+        Value: !Ref VPCType
+  PrivateNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: private-nacl
+      - Key: network-type
+        Value: private
+      - Key: resource-type
+        Value: !Ref VPCType
+
+  # Network ACL Associations
+  AssociateAclPublicSubnet1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl
+      SubnetId: !Ref PublicSubnet1
+  AssociateAclPublicSubnet2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl
+      SubnetId: !Ref PublicSubnet2
+  AssociateAclPublicSubnet3:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PublicNetworkAcl
+      SubnetId: !Ref PublicSubnet3
+  AssociateAclPrivateSubnet1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      SubnetId: !Ref PrivateSubnet1
+  AssociateAclPrivateSubnet2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      SubnetId: !Ref PrivateSubnet2
+  AssociateAclPrivateSubnet3:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PrivateNetworkAcl
+      SubnetId: !Ref PrivateSubnet3
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: public-route-table
+      - Key: network-type
+        Value: public
+      - Key: resource-type
+        Value: !Ref VPCType
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: private1-route-table
+      - Key: network-type
+        Value: private
+      - Key: resource-type
+        Value: !Ref VPCType
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: private2-route-table
+      - Key: network-type
+        Value: private
+      - Key: resource-type
+        Value: !Ref VPCType
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: private3-route-table
+      - Key: network-type
+        Value: private
+      - Key: resource-type
+        Value: !Ref VPCType
+
+  # Route Table Associations
+  AssociateTablePrivateSubnet1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+  AssociateTablePrivateSubnet2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+  AssociateTablePrivateSubnet3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      SubnetId: !Ref PrivateSubnet3
+  AssociateTablePublicSubnet1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+  AssociateTablePublicSubnet2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+  AssociateTablePublicSubnet3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet3
+
+  # Public Route Table Routes
+  PublicRouteTableIGRoute:
+    DependsOn: AttachInternetGateway
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref PublicRouteTable
+      GatewayId: !Ref InternetGateway
+
+  # Private Route Tabel 1 Routes
+  PrivateRouteTable1NATRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet1NAT
+
+  # Private Route Tabel 2 Routes
+  PrivateRouteTable2NATRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet2NAT
+
+  # Private Route Tabel 3 Routes
+  PrivateRouteTable3NATRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref PublicSubnet3NAT
+
+  # Public Route Table IPv6 Routes (conditional on EnableIPv6)
+  PublicRouteTableIPv6IGRoute:
+    Type: AWS::EC2::Route
+    Condition: EnableIPv6
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationIpv6CidrBlock: ::/0
+      GatewayId: !Ref InternetGateway
+
+  # Private Route Tabel 1 IPv6 Routes
+  PrivateRouteTable1EIGWRoute:
+    Type: AWS::EC2::Route
+    Condition: EnableIPv6
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationIpv6CidrBlock: ::/0
+      EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
+
+  # Private Route Tabel 2 IPv6 Routes
+  PrivateRouteTable2EIGWRoute:
+    Type: AWS::EC2::Route
+    Condition: EnableIPv6
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationIpv6CidrBlock: ::/0
+      EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
+
+  # Private Route Tabel 3 IPv6 Routes
+  PrivateRouteTable3EIGWRoute:
+    Type: AWS::EC2::Route
+    Condition: EnableIPv6
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationIpv6CidrBlock: ::/0
+      EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
+
+  # NACL Rules, public subnets
+  # Inbound IPv4 HTTP
+  PublicAclIngress100:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '100'
+      PortRange:
+        From: '80'
+        To: '80'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Inbound IPv4 HTTPS
+  PublicAclIngress110:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '110'
+      PortRange:
+        From: '443'
+        To: '443'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Inbound IPv4 Ephemeral TCP
+  PublicAclIngress130:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '130'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Outbound IPv4 HTTP
+  PublicAclEgress100:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '100'
+      PortRange:
+        From: '80'
+        To: '80'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Outbound IPv4 HTTPS
+  PublicAclEgress110:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '110'
+      PortRange:
+        From: '443'
+        To: '443'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Outbound IPv4 Ephemeral TCP
+  PublicAclEgress130:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '130'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PublicNetworkAcl
+
+  # NACL Rules, private subnets
+  # Inbound IPv4 Ephemeral TCP
+  PrivateAclIngress130:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !Ref VPCCidr
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '130'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PrivateNetworkAcl
+  # Outbound IPv4 HTTP
+  PrivateAclEgress100:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '100'
+      PortRange:
+        From: '80'
+        To: '80'
+      NetworkAclId: !Ref PrivateNetworkAcl
+  # Outbound IPv4 HTTPS
+  PrivateAclEgress110:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '110'
+      PortRange:
+        From: '443'
+        To: '443'
+      NetworkAclId: !Ref PrivateNetworkAcl
+  # Outbound IPv4 Ephemeral TCP
+  PrivateAclEgress130:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      Egress: true
+      CidrBlock: !Ref VPCCidr
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '130'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PrivateNetworkAcl
+
+  # IPv6 NACL Rules, public subnets (conditional on EnableIPv6)
+  # Inbound IPv6 HTTP
+  PublicAclIngress101:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Ipv6CidrBlock: ::/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '101'
+      PortRange:
+        From: '80'
+        To: '80'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Inbound IPv6 HTTPS
+  PublicAclIngress111:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Ipv6CidrBlock: ::/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '111'
+      PortRange:
+        From: '443'
+        To: '443'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Inbound IPv6 Ephemeral TCP
+  PublicAclIngress131:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Ipv6CidrBlock: ::/0
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '131'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Outbound IPv6 HTTP
+  PublicAclEgress101:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Egress: true
+      Ipv6CidrBlock: ::/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '101'
+      PortRange:
+        From: '80'
+        To: '80'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Outbound IPv6 HTTPS
+  PublicAclEgress111:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Egress: true
+      Ipv6CidrBlock: ::/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '111'
+      PortRange:
+        From: '443'
+        To: '443'
+      NetworkAclId: !Ref PublicNetworkAcl
+  # Outbound IPv6 Ephemeral TCP
+  PublicAclEgress131:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Egress: true
+      Ipv6CidrBlock: ::/0
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '131'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PublicNetworkAcl
+
+  # IPv6 NACL Rules, private subnets (conditional on EnableIPv6)
+  # Inbound IPv6 Ephemeral TCP (includes high listening ports)
+  PrivateAclIngress131:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRBlock
+    Properties:
+      Ipv6CidrBlock: !Select [0, !GetAtt VPC.Ipv6CidrBlocks]
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '131'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PrivateNetworkAcl
+  # Outbound IPv6 HTTP
+  PrivateAclEgress101:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Egress: true
+      Ipv6CidrBlock: ::/0
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '101'
+      PortRange:
+        From: '80'
+        To: '80'
+      NetworkAclId: !Ref PrivateNetworkAcl
+  # Outbound IPv6 HTTPS
+  PrivateAclEgress111:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    Properties:
+      Egress: true
+      Ipv6CidrBlock: ::/0
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '111'
+      PortRange:
+        From: '443'
+        To: '443'
+      NetworkAclId: !Ref PrivateNetworkAcl
+  # Outbound IPv6 Ephemeral TCP
+  PrivateAclEgress131:
+    Type: AWS::EC2::NetworkAclEntry
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRBlock
+    Properties:
+      Egress: true
+      Ipv6CidrBlock: !Select [0, !GetAtt VPC.Ipv6CidrBlocks]
+      Protocol: "6"
+      RuleAction: allow
+      RuleNumber: '131'
+      PortRange:
+        From: '1024'
+        To: '65535'
+      NetworkAclId: !Ref PrivateNetworkAcl
+
+  # Lambda Function to get the VPC IPv6 CIDR prefix.
+  # https://forums.aws.amazon.com/thread.jspa?messageID=783487
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Condition: EnableIPv6
+    DependsOn: LambdaIAMRole
+    Properties:
+      Handler: "index.handler"
+      FunctionName: !Sub get-ipv6-cidr-prefix-${AWS::StackName}
+      Description: Returns the IPv6 CIDR prefix for the given VPC.
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              # Handle delete event
+              if event['RequestType'] is 'Delete':
+                  cfnresponse.send(
+                          event,
+                          context,
+                          cfnresponse.SUCCESS)
+
+              # Set the 'event' properties to local variables.
+              vpcId = event['ResourceProperties']['VPC']
+              region = event['ResourceProperties']['Region']
+
+              # Make AWS Calls to get the VPC
+              ec2 = boto3.resource('ec2', region_name=region)
+              vpc = ec2.Vpc(vpcId)
+
+              # Loop and get the last IPv6 CIDR that is in the "associated" state
+              for Ipv6CidrBlockAssoc in vpc.ipv6_cidr_block_association_set:
+                  if Ipv6CidrBlockAssoc['Ipv6CidrBlockState']['State'] == 'associated':
+                      Ipv6CidrBlock = Ipv6CidrBlockAssoc['Ipv6CidrBlock']
+
+              # Split the CIDR into parts
+              Ipv6CidrBlockParts = Ipv6CidrBlock.split(":")
+
+              # Build the prefix string
+              Ipv6CidrBlockPrefix = ":".join([
+                      Ipv6CidrBlockParts[0],
+                      Ipv6CidrBlockParts[1],
+                      Ipv6CidrBlockParts[2],
+                      Ipv6CidrBlockParts[3][:2]])
+
+              # Create the response data map
+              responseData = {}
+              responseData['value'] = Ipv6CidrBlockPrefix
+
+              # send the response
+              cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.SUCCESS,
+                      responseData,
+                      "CustomResourcePhysicalID")
+      Runtime: "python2.7"
+      Role: !GetAtt LambdaIAMRole.Arn
+      Timeout: 30
+      Tags:
+        - Key: resource-type
+          Value: !Ref VPCType
+
+  # IAM Role for the Lambda Function
+  LambdaIAMRole:
+    Type: AWS::IAM::Role
+    Condition: EnableIPv6
+    DependsOn: VPCIPv6CIDRBlock
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: AllowLogsWrite
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+      - PolicyName: AllowVpcAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - ec2:Describe*
+            Resource: '*'
+
+  # Execute the Lambda Function
+  VPCIPv6CIDRPrefix:
+    Type: Custom::ExecuteLambda
+    Condition: EnableIPv6
+    DependsOn: LambdaFunction
+    Properties:
+      ServiceToken: !GetAtt LambdaFunction.Arn
+      VPC: !Ref VPC
+      Region: !Ref 'AWS::Region'
+
+# Outputs
+Outputs:
+  VPC:
+    Description: The ID of the vpc.
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}:vpc
+  VPCType:
+    Description: The type of VPC. E.g., nonprod or prod
+    Value: !Ref VPCType
+    Export:
+      Name: !Sub ${AWS::StackName}:vpc-type
+  PublicSubnet1:
+    Description: The ID of the first public subnet.
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}:public-subnet-1
+  PublicSubnet2:
+    Description: The ID of the second public subnet.
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}:public-subnet-2
+  PublicSubnet3:
+    Description: The ID of the third public subnet.
+    Value: !Ref PublicSubnet3
+    Export:
+      Name: !Sub ${AWS::StackName}:public-subnet-3
+  PrivateSubnet1:
+    Description: The ID of the first private subnet.
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}:private-subnet-1
+  PrivateSubnet2:
+    Description: The ID of the second private subnet.
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}:private-subnet-2
+  PrivateSubnet3:
+    Description: The ID of the third private subnet.
+    Value: !Ref PrivateSubnet3
+    Export:
+      Name: !Sub ${AWS::StackName}:private-subnet-3
+  PublicNetworkAcl:
+    Description: The NACL for the public subnets.
+    Value: !Ref PublicNetworkAcl
+    Export:
+      Name: !Sub ${AWS::StackName}:public-nacl
+  PrivateNetworkAcl:
+    Description: The NACL for the private subnets.
+    Value: !Ref PrivateNetworkAcl
+    Export:
+      Name: !Sub ${AWS::StackName}:private-nacl
+  VPCCIDR:
+    Description: The IPv4 CIDR of the VPC.
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: !Sub ${AWS::StackName}:vpc-cidr
+  IPv6Enabled:
+    Description: true if IPv6 is enabled. Otherwise false.
+    Value: !If [EnableIPv6, 'true', 'false']
+    Export:
+      Name: !Sub ${AWS::StackName}:vpc-ipv6-enabled
+  VPCIPv6CIDR:
+    Condition: EnableIPv6
+    Description: The IPv6 CIDR of the VPC (if enabled).
+    Value: !Select [0, !GetAtt VPC.Ipv6CidrBlocks]
+    Export:
+      Name: !Sub ${AWS::StackName}:vpc-ipv6-cidr
