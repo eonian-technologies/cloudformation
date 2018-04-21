@@ -1,28 +1,27 @@
-# Single VPN Instance ([vpn-instance.yaml](../vpn-instance.yaml))
+# VPN ([vpn.yaml](../vpn.yaml))
 * Creates a single `OpenVPN` instance in the first public subnet of the specified VPC.
-* Uses exported outputs of the specified [VPC stack](vpc-3az.md) to get VPC values.
+* Uses exported outputs of the specified [VPC stack](vpc.md) to get VPC values.
 * Attaches a new EIP, and creates a Security Group with all the needed rules.
-* Adds SSH NACL rules to the VPC's public and private NACL's
-* Supports IPv6. If enabled, adds IPv6 SSH rules to the VPC's NACLs.
+* Adds VPN rules to the VPC's public NACL's
 * Creates a Route53 entry for the VPN instance (requires a Route53 Public Zone).
 * Connect up to 500 devices and users. You must accept the license agreement at the [AWS Marketplace](https://aws.amazon.com/marketplace/search/results?x=0&y=0&searchTerms=OpenVPN+access+server&page=1&ref_=nav_search_box).
 
 ### Usage
-* [Create your VPCs](vpc-3az.md).
+* [Create your VPCs](vpc.md).
 * [Create your private hosted zone (optional)](private-zone.md)
-* Use the [vpn-instance.yaml](../vpn-instance.yaml) template to create a single VPN instance in the first public zone.
+* Use the [vpn.yaml](../vpn.yaml) template to create a single VPN instance in the first public zone.
 * Follow the simple [configuration instructions](#command-line-configuration).
 
 ### Parameters
-* **Stack Name:** E.g., `vpn-nonprod` or `vpn-prod`
-* **VPC Stack:** The name of the VPC stack where the VPN will be deployed. E.g., `vpc-nonprod` or `vpc-prod`
-* **Enable IPv6:** Yes, if you want IPv6 SSH rules added to the VPC's NACLs.
+* **Stack Name:** E.g., `vpn-corp`
+* **VPC Stack:** The name of the VPC stack where the VPN will be deployed. E.g., `vpc-corp`.
+* **Version:** The OpenVPN version.
+* **NumberOfDevices:** Does not include instance charges. You must accept the license agreement in the AWS Marketplace.
 * **Instance Type:** The AWS instance type that will be used.
 * **Key Name:** The key that will be used to SSH into the host.
-* **Host Name:** The DNS host name of the VPN server. E.g., `vpn.nonprod.us-east-1`
+* **Host Name:** The DNS host name of the VPN server. E.g., `vpn.corp.us-east-1`
 * **Domain Name:** The domain name of the Route53 public hosted zone that will contain the DNS record. E.g., `mycompany.net`
-* **IPv4 CIDR:** The IPv4 CIDR allowed to SSH into the VPC's public zones. E.g., `0.0.0.0/0`
-* **IPv6 CIDR:** The IPv6 CIDR allowed to SSH into the VPC's public zones. E.g., `::/0`
+* **SSH CIDR:** The IPv4 CIDR allowed to SSH into the VPC's public zones. E.g., `0.0.0.0/0`
 
 # Command Line Configuration
 * These steps are done after the stack has been created.
@@ -31,7 +30,7 @@
 * SSH to the instance. The domain name is the outputs of the stack.
 
 ```
-$ ssh -i nonprod.pem openvpnas@vpn.nonprod.us-east-1.mycompany.net
+$ ssh -i your.pem openvpnas@vpn.nonprod.us-east-1.mycompany.net
 ```
 * **The setup will start automatically.**
 * Agree to the license terms.
