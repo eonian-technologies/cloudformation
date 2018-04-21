@@ -53,7 +53,7 @@ This VPC is used as corporate network. It is where the VPN is located along with
 * public3: 10.0.224.0/20
 
 ### Nonprod VPC: 10.1.0.0/16
-This VPC is used for all nonprod environments. E.g., dev, qa.
+This VPC is used for all nonprod environments. E.g., dev, qa, ancillary.
 * private1: 10.1.0.0/18
 * private2: 10.1.64.0/18
 * private3: 10.1.128.0/18
