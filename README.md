@@ -1,4 +1,4 @@
-# Production Grade CloudFormation Templates
+# AWS CloudFormation Templates
 
 ### [Three-zone VPC](docs/vpc.md)
 * Creates a three-zone VPC.
