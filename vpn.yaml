@@ -19,6 +19,7 @@
 # public subnet of the given VPC. The VPCs NACL rules will be updated to allow
 # connectivity. Additional charges for use of the OpenVPN software may apply.
 #
+---
 AWSTemplateFormatVersion: '2010-09-09'
 Description: OpenVPN Access Server.
 
@@ -27,25 +28,9 @@ Parameters:
   VPCStackName:
     Type: String
     Description: The name of the VPC stack where the VPN will be deployed.
-  Version:
-    Type: String
-    Description: The OpenVPN version.
-    AllowedValues:
-    - '2.1.9'
-    Default: '2.1.9'
-  NumberOfDevices:
-    Type: String
-    Description: Does not include instance charges. You must accept the license agreement in the AWS Marketplace.
-    AllowedValues:
-    -   2 | Free
-    -   5 | $0.07/hr or from $490.00/yr
-    -  10 | $0.10/hr or from $700.00/yr
-    -  25 | $0.20/hr or from $1,400.00/yr
-    -  50 | $0.30/hr or from $2,100.00/yr
-    - 100 | $0.40/hr or from $2,800.00/yr
-    - 250 | $0.80/hr or from $5,600.00/yr
-    - 500 | $1.50/hr or from $10,500.00/yr
-    Default: 2 | Free
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: The id of the OpenVPN AMI.
   InstanceType:
     Type: String
     Description: The AWS instance type that will be used.
@@ -59,21 +44,25 @@ Parameters:
     - m4.xlarge
     - m4.2xlarge
     - m4.4xlarge
-    Default: t2.medium
+    Default: t2.small
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: The key that will be used to SSH into the OpenVPN Access Server instance.
   HostName:
     Type: String
     Description: The DNS host name of the VPN server.
-    Default: vpn.corp.us-east-1
+    Default: vpn.nonprod.us-east-1
   DomainName:
     Type: String
     Description: The domain name of the Route53 public hosted zone that will contain the DNS record.
     Default: mycompany.com
   SSHCIDR:
     Type: String
-    Description: The IPv4 CIDR allowed to SSH into the VPN instance. NACL rule will be added.
+    Description: The IPv4 CIDR allowed to SSH into the VPN instance. This is required for configuration. A VPC NACL rule will be added. To remove SSH access, set this to empty.
+    Default: 0.0.0.0/0
+  AccessCIDR:
+    Type: String
+    Description: The IPv4 CIDR allowed to use VPN services.
     Default: 0.0.0.0/0
 
 # Metadata
@@ -89,27 +78,26 @@ Metadata:
     - Label:
         default: Instance
       Parameters:
+      - ImageId
       - InstanceType
       - KeyName
-    - Label:
-        default: OpenVPN
-      Parameters:
-      - Version
-      - NumberOfDevices
     - Label:
         default: DNS
       Parameters:
       - HostName
       - DomainName
     - Label:
-        default: Public SSH Ingress
+        default: Ingress
       Parameters:
       - SSHCIDR
+      - AccessCIDR
 
     # Parameter Labels
     ParameterLabels:
       VPCStackName:
         default: VPC Stack
+      ImageId:
+        default: Image ID
       InstanceType:
         default: Instance Type
       HostName:
@@ -117,9 +105,15 @@ Metadata:
       DomainName:
         default: Domain Name
       SSHCIDR:
-        default: IPv4 CIDR
+        default: IPv4 SSH CIDR
       NumberOfDevices:
         default: Number Of Users
+      AccessCIDR:
+        default: IPv4 Access CIDR
+
+# Conditions
+Conditions:
+  HasSSHCIDR: !Not [!Equals ['', !Ref SSHCIDR]]
 
 # Resources
 Resources:
@@ -135,14 +129,17 @@ Resources:
           Fn::Sub:
             ${VPCStackName}:vpc
       SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: '22'
-        ToPort: '22'
-        CidrIp: !Ref SSHCIDR
+      - Fn::If:
+        - HasSSHCIDR
+        - - IpProtocol: tcp
+            FromPort: '22'
+            ToPort: '22'
+            CidrIp: !Ref SSHCIDR
+        - !Ref 'AWS::NoValue'
       - IpProtocol: tcp
         FromPort: '443'
         ToPort: '443'
-        CidrIp: 0.0.0.0/0
+        CidrIp: !Ref AccessCIDR
       - IpProtocol: tcp
         FromPort: '943'
         ToPort: '943'
@@ -150,7 +147,7 @@ Resources:
       - IpProtocol: udp
         FromPort: '1194'
         ToPort: '1194'
-        CidrIp: 0.0.0.0/0
+        CidrIp: !Ref AccessCIDR
       Tags:
       - Key: Name
         Value: !Ref 'AWS::StackName'
@@ -160,7 +157,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
-      ImageId: !Sub "${OpenVPNAMI.value}"
+      ImageId: !Ref ImageId
       KeyName: !Ref KeyName
       SecurityGroupIds:
       - !Ref SecurityGroup
@@ -203,6 +200,7 @@ Resources:
   PublicAclIngress500:
     Type: AWS::EC2::NetworkAclEntry
     DependsOn: Instance
+    Condition: HasSSHCIDR
     Properties:
       CidrBlock: !Ref SSHCIDR
       Protocol: "6"
@@ -221,7 +219,7 @@ Resources:
     Type: AWS::EC2::NetworkAclEntry
     DependsOn: Instance
     Properties:
-      CidrBlock: !Ref SSHCIDR
+      CidrBlock: !Ref AccessCIDR
       Protocol: '6'
       RuleAction: allow
       RuleNumber: '510'
@@ -238,7 +236,7 @@ Resources:
     Type: AWS::EC2::NetworkAclEntry
     DependsOn: Instance
     Properties:
-      CidrBlock: !Ref SSHCIDR
+      CidrBlock: !Ref AccessCIDR
       Protocol: '17'
       RuleAction: allow
       RuleNumber: '520'
@@ -250,97 +248,8 @@ Resources:
           Fn::Sub:
             ${VPCStackName}:public-nacl
 
-  # Lambda Function to Look up the OpenVPN Marketplace AMI based on the region,
-  # the OpenVPN version, and the number of connected devices.
-  LambdaFunction:
-    Type: AWS::Lambda::Function
-    DependsOn: LambdaRole
-    Properties:
-      Runtime: python2.7
-      Handler: "index.handler"
-      Timeout: 5
-      FunctionName: !Sub get-openvpc-marketplace-ami-${AWS::StackName}
-      Description: Looks up the OpenVPN Marketplace AMI based on the region and the desired number of connected devices.
-      Role: !GetAtt LambdaRole.Arn
-      Code:
-        ZipFile: !Sub |
-          import cfnresponse
-          def handler(event, context):
-            # handle delete event
-            if event['RequestType'] is 'Delete':
-              cfnresponse.send(event, context, cfnresponse.SUCCESS)
-            # Set the 'event' properties to local variables.
-            Region = event['ResourceProperties']['Region']
-            Version = event['ResourceProperties']['Version']
-            NumberOfDevices = event['ResourceProperties']['NumberOfDevices']
-            NumberOfDevices = NumberOfDevices.split(" | ")[0]
-            # Create the AMI map
-            amiMap = {}
-            amiMap["us-east-1"] = {}
-            amiMap["us-east-1"]["2.1.9"] = {}
-            amiMap["us-east-1"]["2.1.9"]["2"] = "ami-f6eed4e0"
-            amiMap["us-east-1"]["2.1.9"]["5"] = "ami-6beed47d"
-            amiMap["us-east-1"]["2.1.9"]["10"] = "ami-d4e9d3c2"
-            amiMap["us-east-1"]["2.1.9"]["25"] = "ami-f1eed4e7"
-            amiMap["us-east-1"]["2.1.9"]["50"] = "ami-bcebd1aa"
-            amiMap["us-east-1"]["2.1.9"]["100"] = "ami-29eed43f"
-            amiMap["us-east-1"]["2.1.9"]["250"] = "ami-b1ebd1a7"
-            amiMap["us-east-1"]["2.1.9"]["500"] = "ami-2deed43b"
-            # Create the response data map
-            responseData = {}
-            responseData['value'] = amiMap[Region][Version][NumberOfDevices]
-            # Send the response
-            cfnresponse.send(
-                    event,
-                    context,
-                    cfnresponse.SUCCESS,
-                    responseData,
-                    "CustomResourcePhysicalID")
-      Runtime: python2.7
-      Timeout: 5
-
-  # IAM Role for the Lambda Function
-  LambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - lambda.amazonaws.com
-          Action:
-          - sts:AssumeRole
-      Path: "/"
-      Policies:
-      - PolicyName: AllowLogsWrite
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action:
-            - logs:CreateLogGroup
-            - logs:CreateLogStream
-            - logs:PutLogEvents
-            Resource: arn:aws:logs:*:*:*
-
-  # Execute the Lambda Function
-  OpenVPNAMI:
-    DependsOn: LambdaRole
-    Type: Custom::ExecuteLambda
-    DependsOn: LambdaFunction
-    Properties:
-      ServiceToken: !GetAtt LambdaFunction.Arn
-      Region: !Ref 'AWS::Region'
-      Version: !Ref Version
-      NumberOfDevices: !Ref NumberOfDevices
-
 # Outputs
 Outputs:
-  AMI:
-    Description: The OpenVPN AMI used.
-    Value: !Sub "${OpenVPNAMI.value}"
   AdminURL:
     Description: The URL to the OpenVPN Admin UI.
     Value: !Sub "https://${HostName}.${DomainName}:943/admin"
